@@ -1,6 +1,6 @@
 # SocialFI
 
-SocialFI is a [description of your project]. It includes [brief overview of the main features or components of your project].
+contracts for SocialFI built on evm chain. Create by Huy8bit
 
 ## Installation
 
