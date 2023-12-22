@@ -1,10 +1,10 @@
-# Project_X
+# SocialFI
 
-Project_X is a [description of your project]. It includes [brief overview of the main features or components of your project].
+SocialFI is a [description of your project]. It includes [brief overview of the main features or components of your project].
 
 ## Installation
 
-To get started with Project_X, follow these steps:
+To get started with SocialFI, follow these steps:
 
 
 1. Install all the dependencies.
