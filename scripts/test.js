@@ -38,44 +38,52 @@ describe("Launchpad Contract", function () {
         ethers.utils.parseUnits("1000"),
         ethers.utils.parseUnits("10"),
         Math.floor(Date.now() / 1000) + 20, // 20 seconds from now
-        Math.floor(Date.now() / 1000) + 86400 // 1 day from now
+        Math.floor(Date.now() / 1000) + 300 // 5 minutes from now
       );
       console.log(result);
     });
   });
-  // describe("Investing in a project", function () {
-  //   it("should allow users to invest in a project", async function () {
-  //     const investmentAmount = ethers.utils.parseUnits("50", 18);
 
-  //     await expect(launchpad.connect(user1).invest(projectId, investmentAmount))
-  //       .to.emit(launchpad, "ProjectInvested")
-  //       .withArgs(projectId, user1.address, investmentAmount);
-  //   });
-  // });
+  describe("transfer token to user", function () {
+    it("should allow owner to transfer token to user", async function () {
+      const result = await tokenInvested.transfer(
+        "0xf30607e0cdec7188d50d2bb384073bf1d5b02fa4",
+        ethers.utils.parseUnits("1000000")
+      );
+      console.log(result);
+    });
+  });
+  describe("Investing in a project", function () {
+    it("should allow users to invest in a project", async function () {
+      console.log("approve tokenInvested to launchpad");
+      // approve tokenInvested to launchpad
+      await tokenInvested.approve(
+        launchpad.address,
+        ethers.utils.parseUnits("1000")
+      );
 
-  // describe("Withdraw from a project", function () {
-  //   it("should allow project owner to withdraw", async function () {
-  //     // Forward time to after project end
-  //     await ethers.provider.send("evm_increaseTime", [86400 + 1]);
-  //     await ethers.provider.send("evm_mine");
+      // delay 20 seconds
+      await new Promise((resolve) => setTimeout(resolve, 20000));
 
-  //     await expect(launchpad.connect(owner).withdrawProject(projectId)).to.emit(
-  //       launchpad,
-  //       "ProjectWithdrawn"
-  //     ); // Assuming this event exists
-  //   });
-  // });
+      // invest in project
+      const result = await launchpad.invest(1, ethers.utils.parseUnits("1000"));
+      console.log(result);
+    });
+  });
 
-  // describe("Claiming from a project", function () {
-  //   it("should allow investors to claim after project ends", async function () {
-  //     // Forward time to after project end
-  //     await ethers.provider.send("evm_increaseTime", [86400 + 1]);
-  //     await ethers.provider.send("evm_mine");
+  describe("Withdraw from a project", function () {
+    it("should allow project owner to withdraw", async function () {
+      // withdraw from project
+      const result = await launchpad.withdrawProject(1);
+      console.log(result);
+    });
+  });
 
-  //     await expect(launchpad.connect(user1).claimProject(projectId)).to.emit(
-  //       launchpad,
-  //       "ProjectClaimed"
-  //     ); // Assuming this event exists
-  //   });
-  // });
+  describe("Claiming from a project", function () {
+    it("should allow investors to claim after project ends", async function () {
+      // claim from project
+      const result = await launchpad.claimProject(1);
+      console.log(result);
+    });
+  });
 });
