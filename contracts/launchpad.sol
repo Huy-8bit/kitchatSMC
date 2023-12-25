@@ -16,9 +16,7 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         address tokenInvested;
         address owner;
         uint256 tokenPrice;
-        uint256 maxTokenPerUser;
         uint256 maxCapacity;
-        uint256 minTokenPerUser;
         uint256 startTime;
         uint256 endTime;
         uint256 totalInvestment;
@@ -26,15 +24,9 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         bool claim;
     }
 
-    struct Investment {
-        uint256 amount;
-        uint256 timestamp;
-    }
-
     mapping(uint256 => Project) public projects;
-    mapping(uint256 => mapping(address => Investment)) public investments;
+    mapping(uint256 => mapping(address => uint256)) public investments;
     mapping(uint256 => address[]) public investors;
-
     event ProjectListed(
         uint256 indexed id,
         address indexed tokenAddress,
@@ -50,9 +42,12 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
     event ProjectInvested(
         uint256 indexed id,
         address indexed investor,
-        uint256 amount,
-        uint256 timestamp
+        uint256 amount
     );
+
+    constructor() {
+        launchPadadmin = msg.sender;
+    }
 
     function createProject(
         address _tokenAddress,
@@ -81,9 +76,7 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
             _tokenInvested,
             msg.sender,
             _tokenPrice,
-            _maxTokenPerUser,
             _maxCapacity,
-            _minTokenPerUser,
             _startTime,
             _endTime,
             0,
@@ -119,11 +112,6 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
             "Launchpad: full capacity"
         );
         require(
-            _amount >= projects[_id].minTokenPerUser &&
-                _amount <= projects[_id].maxTokenPerUser,
-            "Launchpad: invalid amount"
-        );
-        require(
             projects[_id].totalInvestment + _amount <=
                 projects[_id].maxCapacity,
             "Launchpad: exceeding capacity"
@@ -146,8 +134,8 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
 
         projects[_id].totalInvestment += _amount;
         investors[_id].push(msg.sender);
-        investments[_id][msg.sender] = Investment(_amount, block.timestamp);
-        emit ProjectInvested(_id, msg.sender, _amount, block.timestamp);
+        investments[_id][msg.sender] += _amount;
+        emit ProjectInvested(_id, msg.sender, _amount);
     }
 
     function withdrawProject(uint256 _id) external whenNotPaused nonReentrant {
@@ -197,21 +185,18 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         );
         projects[_id].claim = true;
         for (uint256 i = 0; i < investors[_id].length; i++) {
-            uint256 amount = investments[_id][investors[_id][i]].amount;
-            if (amount > 0) {
-                if (projects[_id].tokenInvested != address(0)) {
-                    SafeERC20.safeTransfer(
-                        IERC20(projects[_id].tokenAddress),
-                        investors[_id][i],
-                        amount * projects[_id].tokenPrice
-                    );
-                } else if (projects[_id].tokenInvested == address(0)) {
-                    payable(investors[_id][i]).transfer(
-                        amount * projects[_id].tokenPrice
-                    );
-                } else {
-                    revert("Launchpad: invalid token address");
-                }
+            uint256 amount = investments[_id][investors[_id][i]] *
+                projects[_id].tokenPrice;
+            if (projects[_id].tokenAddress != address(0)) {
+                SafeERC20.safeTransfer(
+                    IERC20(projects[_id].tokenAddress),
+                    investors[_id][i],
+                    amount
+                );
+            } else if (projects[_id].tokenAddress == address(0)) {
+                payable(investors[_id][i]).transfer(amount);
+            } else {
+                revert("Launchpad: invalid token address");
             }
         }
     }

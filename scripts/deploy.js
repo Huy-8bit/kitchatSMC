@@ -5,7 +5,7 @@ require("hardhat-deploy-ethers");
 const utils = ethers.utils;
 
 // command line: npx hardhat run scripts/deploy.js --network sepolia
-
+// command line: npx hardhat verify --network sepolia <contract address> <constructor arguments>
 async function main() {
   const [deployer] = await ethers.getSigners();
 
