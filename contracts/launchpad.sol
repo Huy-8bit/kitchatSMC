@@ -4,15 +4,16 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract Launchpad is Ownable, Pausable, ReentrancyGuard {
     address public launchPadadmin;
+    uint256 public totalProject;
 
-    struct projectListed {
+    struct Project {
         uint256 id;
         address tokenAddress;
+        address tokenInvested;
         address owner;
         uint256 tokenPrice;
         uint256 maxTokenPerUser;
@@ -21,54 +22,41 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         uint256 startTime;
         uint256 endTime;
         uint256 totalInvestment;
+        bool withdraw;
+        bool claim;
     }
-    struct investment {
-        uint256 id;
-        address investor;
+
+    struct Investment {
         uint256 amount;
         uint256 timestamp;
     }
 
-    using SafeMath for uint256;
+    mapping(uint256 => Project) public projects;
+    mapping(uint256 => mapping(address => Investment)) public investments;
+    mapping(uint256 => address[]) public investors;
 
-    using SafeERC20 for IERC20;
-
-    uint256 public projectCount;
-
-    mapping(uint256 => projectListed) public projects;
-
-    mapping(uint256 => investment[]) public investments;
-
-    mapping(address => uint256[]) public listProjects;
-
-    event projectListedEvent(
-        uint256 id,
-        address tokenAddress,
+    event ProjectListed(
+        uint256 indexed id,
+        address indexed tokenAddress,
+        address indexed tokenInvested,
         address owner,
         uint256 tokenPrice,
         uint256 maxTokenPerUser,
         uint256 maxCapacity,
         uint256 minTokenPerUser,
         uint256 startTime,
-        uint256 endTime,
-        uint256 totalInvestment
+        uint256 endTime
     );
-
-    event investmentEvent(
-        uint256 id,
-        address investor,
+    event ProjectInvested(
+        uint256 indexed id,
+        address indexed investor,
         uint256 amount,
         uint256 timestamp
     );
 
-    event Swept(address to, uint256 value);
-
-    constructor() {
-        launchPadadmin = msg.sender;
-    }
-
-    function listed(
-        IERC20 _tokenAddress,
+    function createProject(
+        address _tokenAddress,
+        address _tokenInvested,
         uint256 _tokenPrice,
         uint256 _maxTokenPerUser,
         uint256 _maxCapacity,
@@ -76,51 +64,21 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         uint256 _startTime,
         uint256 _endTime
     ) external whenNotPaused {
+        require(_tokenAddress != address(0), "Launchpad: zero token address");
+        require(_tokenPrice > 0, "Launchpad: zero token price");
+        require(_maxTokenPerUser > 0, "Launchpad: zero max token/user");
+        require(_maxCapacity > 0, "Launchpad: zero max capacity");
+        require(_minTokenPerUser > 0, "Launchpad: zero min token/user");
         require(
-            _tokenPrice > 0,
-            "launchpad: token price must be greater than zero"
+            _startTime > 0 && _endTime > _startTime,
+            "Launchpad: invalid time"
         );
-        require(
-            _maxTokenPerUser > 0,
-            "launchpad: max token per user must be greater than zero"
-        );
-        require(
-            _maxCapacity > 0,
-            "launchpad: max capacity must be greater than zero"
-        );
-        require(
-            _minTokenPerUser > 0,
-            "launchpad: min token per user must be greater than zero"
-        );
-        require(
-            _startTime > 0,
-            "launchpad: start time must be greater than zero"
-        );
-        require(_endTime > 0, "launchpad: end time must be greater than zero");
-        require(
-            _startTime < _endTime,
-            "launchpad: start time must be less than end time"
-        );
-        require(
-            _tokenAddress.balanceOf(msg.sender) >= _maxCapacity,
-            "launchpad: you must have enough token to list"
-        );
-        require(
-            _tokenAddress.allowance(msg.sender, address(this)) >= _maxCapacity,
-            "launchpad: you must approve token to contract"
-        );
-        require(
-            _tokenAddress.balanceOf(address(this)) >= _maxCapacity,
-            "launchpad: contract must have enough token"
-        );
-        require(
-            _tokenAddress.transferFrom(msg.sender, address(this), _maxCapacity),
-            "launchpad: token transfer failed"
-        );
-        projectCount++;
-        projects[projectCount] = projectListed(
-            projectCount,
-            address(_tokenAddress),
+
+        totalProject++;
+        projects[totalProject] = Project(
+            totalProject,
+            _tokenAddress,
+            _tokenInvested,
             msg.sender,
             _tokenPrice,
             _maxTokenPerUser,
@@ -128,20 +86,21 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
             _minTokenPerUser,
             _startTime,
             _endTime,
-            0
+            0,
+            false,
+            false
         );
-        listProjects[msg.sender].push(projectCount);
-        emit projectListedEvent(
-            projectCount,
-            address(_tokenAddress),
+        emit ProjectListed(
+            totalProject,
+            _tokenAddress,
+            _tokenInvested,
             msg.sender,
             _tokenPrice,
             _maxTokenPerUser,
             _maxCapacity,
             _minTokenPerUser,
             _startTime,
-            _endTime,
-            0
+            _endTime
         );
     }
 
@@ -149,199 +108,111 @@ contract Launchpad is Ownable, Pausable, ReentrancyGuard {
         uint256 _id,
         uint256 _amount
     ) external payable whenNotPaused nonReentrant {
+        require(_id > 0 && _id <= totalProject, "Launchpad: invalid id");
         require(
-            _id > 0 && _id <= projectCount,
-            "launchpad: invalid project id"
-        );
-        require(
-            projects[_id].startTime <= block.timestamp,
-            "launchpad: project not started yet"
-        );
-        require(
-            projects[_id].endTime >= block.timestamp,
-            "launchpad: project already ended"
+            block.timestamp >= projects[_id].startTime &&
+                block.timestamp <= projects[_id].endTime,
+            "Launchpad: invalid time"
         );
         require(
             projects[_id].totalInvestment < projects[_id].maxCapacity,
-            "launchpad: project already filled"
+            "Launchpad: full capacity"
         );
         require(
-            _amount > 0,
-            "launchpad: investment amount must be greater than zero"
+            _amount >= projects[_id].minTokenPerUser &&
+                _amount <= projects[_id].maxTokenPerUser,
+            "Launchpad: invalid amount"
         );
         require(
-            _amount >= projects[_id].minTokenPerUser,
-            "launchpad: investment amount must be greater than min token per user"
-        );
-        require(
-            _amount <= projects[_id].maxTokenPerUser,
-            "launchpad: investment amount must be less than max token per user"
-        );
-        require(
-            projects[_id].totalInvestment.add(_amount) <=
+            projects[_id].totalInvestment + _amount <=
                 projects[_id].maxCapacity,
-            "launchpad: investment amount must be less than max capacity"
+            "Launchpad: exceeding capacity"
         );
         require(
-            IERC20(projects[_id].tokenAddress).balanceOf(msg.sender) >= _amount,
-            "launchpad: you must have enough token to invest"
+            !projects[_id].withdraw && !projects[_id].claim,
+            "Launchpad: project closed"
         );
-        require(
-            IERC20(projects[_id].tokenAddress).allowance(
-                msg.sender,
-                address(this)
-            ) >= _amount,
-            "launchpad: you must approve token to contract"
-        );
-        require(
-            IERC20(projects[_id].tokenAddress).balanceOf(address(this)) >=
-                _amount,
-            "launchpad: contract must have enough token"
-        );
-        require(
-            IERC20(projects[_id].tokenAddress).transferFrom(
+
+        if (projects[_id].tokenInvested != address(0)) {
+            SafeERC20.safeTransferFrom(
+                IERC20(projects[_id].tokenInvested),
                 msg.sender,
                 address(this),
                 _amount
-            ),
-            "launchpad: token transfer failed"
-        );
-        projects[_id].totalInvestment = projects[_id].totalInvestment.add(
-            _amount
-        );
-        investments[_id].push(
-            investment(_id, msg.sender, _amount, block.timestamp)
-        );
-        emit investmentEvent(_id, msg.sender, _amount, block.timestamp);
-    }
-
-    function claim(uint256 _id) external whenNotPaused nonReentrant {
-        require(
-            _id > 0 && _id <= projectCount,
-            "launchpad: invalid project id"
-        );
-        require(
-            projects[_id].endTime < block.timestamp,
-            "launchpad: project not ended yet"
-        );
-        require(
-            projects[_id].totalInvestment > 0,
-            "launchpad: project not invested yet"
-        );
-        require(
-            projects[_id].owner == msg.sender,
-            "launchpad: you are not owner of project"
-        );
-        uint256 totalInvestment = projects[_id].totalInvestment;
-        uint256 totalToken = totalInvestment.div(projects[_id].tokenPrice);
-        uint256 totalTokenPerUser = totalToken.div(
-            projects[_id].totalInvestment
-        );
-        for (uint256 i = 0; i < investments[_id].length; i++) {
-            uint256 amount = totalTokenPerUser.mul(investments[_id][i].amount);
-            IERC20(projects[_id].tokenAddress).safeTransfer(
-                investments[_id][i].investor,
-                amount
             );
+        } else {
+            require(msg.value == _amount, "Launchpad: mismatched value");
         }
-        emit Swept(msg.sender, totalInvestment);
+
+        projects[_id].totalInvestment += _amount;
+        investors[_id].push(msg.sender);
+        investments[_id][msg.sender] = Investment(_amount, block.timestamp);
+        emit ProjectInvested(_id, msg.sender, _amount, block.timestamp);
     }
 
-    function withdraw(uint256 _id) external whenNotPaused nonReentrant {
+    function withdrawProject(uint256 _id) external whenNotPaused nonReentrant {
         require(
-            _id > 0 && _id <= projectCount,
-            "launchpad: invalid project id"
-        );
-        require(
-            projects[_id].endTime < block.timestamp,
-            "launchpad: project not ended yet"
+            _id > 0 && _id <= totalProject,
+            "Launchpad: invalid project id"
         );
         require(
-            projects[_id].totalInvestment > 0,
-            "launchpad: project not invested yet"
+            msg.sender == projects[_id].owner,
+            "Launchpad: only owner can withdraw"
         );
         require(
-            projects[_id].owner == msg.sender,
-            "launchpad: you are not owner of project"
+            block.timestamp >= projects[_id].endTime,
+            "Launchpad: project not ended yet"
         );
-        uint256 totalInvestment = projects[_id].totalInvestment;
-        IERC20(projects[_id].tokenAddress).safeTransfer(
-            projects[_id].owner,
-            totalInvestment
+        require(
+            projects[_id].withdraw == false,
+            "Launchpad: already withdrawn"
         );
-        emit Swept(msg.sender, totalInvestment);
+        projects[_id].withdraw = true;
+        if (projects[_id].tokenInvested != address(0)) {
+            SafeERC20.safeTransfer(
+                IERC20(projects[_id].tokenInvested),
+                msg.sender,
+                projects[_id].totalInvestment
+            );
+        } else if (projects[_id].tokenInvested == address(0)) {
+            payable(msg.sender).transfer(projects[_id].totalInvestment);
+        } else {
+            revert("Launchpad: invalid token address");
+        }
     }
 
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    function sweep(address _to, uint256 _value) external onlyOwner {
-        require(_to != address(0), "launchpad: can not sweep to zero address");
-        require(_value > 0, "launchpad: can not sweep zero or negative value");
-        IERC20(projects[1].tokenAddress).safeTransfer(_to, _value);
-        emit Swept(_to, _value);
-    }
-
-    function updateAdmin(address _newAdmin) external onlyOwner {
+    function claimProject(uint256 _id) external whenNotPaused nonReentrant {
         require(
-            _newAdmin != address(0),
-            "launchpad: can not set zero address as admin"
-        );
-        launchPadadmin = _newAdmin;
-    }
-
-    function updateProject(
-        uint256 _id,
-        uint256 _tokenPrice,
-        uint256 _maxTokenPerUser,
-        uint256 _maxCapacity,
-        uint256 _minTokenPerUser,
-        uint256 _startTime,
-        uint256 _endTime
-    ) external whenNotPaused {
-        require(
-            _id > 0 && _id <= projectCount,
-            "launchpad: invalid project id"
+            _id > 0 && _id <= totalProject,
+            "Launchpad: invalid project id"
         );
         require(
-            projects[_id].owner == msg.sender,
-            "launchpad: you are not owner of project"
+            block.timestamp >= projects[_id].endTime,
+            "Launchpad: project not ended yet"
         );
+        require(projects[_id].claim == false, "Launchpad: already claimed");
         require(
-            _tokenPrice > 0,
-            "launchpad: token price must be greater than zero"
+            msg.sender == projects[_id].owner,
+            "Launchpad: only owner claim"
         );
-        require(
-            _maxTokenPerUser > 0,
-            "launchpad: max token per user must be greater than zero"
-        );
-        require(
-            _maxCapacity > 0,
-            "launchpad: max capacity must be greater than zero"
-        );
-        require(
-            _minTokenPerUser > 0,
-            "launchpad: min token per user must be greater than zero"
-        );
-        require(
-            _startTime > 0,
-            "launchpad: start time must be greater than zero"
-        );
-        require(_endTime > 0, "launchpad: end time must be greater than zero");
-        require(
-            _startTime < _endTime,
-            "launchpad: start time must be less than end time"
-        );
-        projects[_id].tokenPrice = _tokenPrice;
-        projects[_id].maxTokenPerUser = _maxTokenPerUser;
-        projects[_id].maxCapacity = _maxCapacity;
-        projects[_id].minTokenPerUser = _minTokenPerUser;
-        projects[_id].startTime = _startTime;
-        projects[_id].endTime = _endTime;
+        projects[_id].claim = true;
+        for (uint256 i = 0; i < investors[_id].length; i++) {
+            uint256 amount = investments[_id][investors[_id][i]].amount;
+            if (amount > 0) {
+                if (projects[_id].tokenInvested != address(0)) {
+                    SafeERC20.safeTransfer(
+                        IERC20(projects[_id].tokenAddress),
+                        investors[_id][i],
+                        amount * projects[_id].tokenPrice
+                    );
+                } else if (projects[_id].tokenInvested == address(0)) {
+                    payable(investors[_id][i]).transfer(
+                        amount * projects[_id].tokenPrice
+                    );
+                } else {
+                    revert("Launchpad: invalid token address");
+                }
+            }
+        }
     }
 }

@@ -33,6 +33,7 @@ const REAL_ACCOUNTS = (module.exports = {
   mocha: {
     timeout: 100000000,
   },
+
   solidity: {
     compilers: [
       {
@@ -40,6 +41,12 @@ const REAL_ACCOUNTS = (module.exports = {
       },
       {
         version: "0.8.18",
+      },
+      {
+        version: "0.8.0",
+      },
+      {
+        version: "0.8.1",
       },
       {
         version: "0.6.12",
@@ -58,8 +65,9 @@ const REAL_ACCOUNTS = (module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 100,
       },
+      viaIR: true,
     },
   },
 });
